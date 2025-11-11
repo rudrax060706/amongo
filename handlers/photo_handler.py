@@ -13,7 +13,7 @@ from telegram.ext import (
     filters,
 )
 from utils.database import db  # ✅ Motor (MongoDB) client
-from models.submission import Submission  # ✅ Use your Pydantic model
+from models.tables import Submission  # ✅ Use your Pydantic model
 from .add_command import is_private_chat, is_member, RARITY_MAP, GROUP_URL, CHANNEL_URL
 
 
