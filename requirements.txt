@@ -2,7 +2,7 @@
 python-telegram-bot==20.8
 
 # Async MongoDB driver
-motor>=4.3.0
+motor>=3.7.1
 
 # Environment variables
 python-dotenv>=1.0.1
