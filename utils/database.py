@@ -41,5 +41,10 @@ from dotenv import load_dotenv
 load_dotenv()
 MONGO_URL = os.getenv("MONGO_URL")
 client = AsyncIOMotorClient(MONGO_URL)
-db = client.get_database("auction_bot")  # your DB name
+db = client.get_database("AUCTIONBOT")
 submissions_collection = db["submissions"]
+
+async def init_db():
+    """Optional DB check — verifies connection at startup."""
+    await db.command("ping")
+    print("✅ MongoDB connected successfully")
