@@ -1,0 +1,17 @@
+# Telegram Bot
+python-telegram-bot==20.8
+
+# Async MongoDB driver
+motor>=4.3.0
+
+# Environment variables
+python-dotenv>=1.0.1
+
+# Async helpers & scheduling
+nest-asyncio>=1.6.0
+apscheduler>=3.10.4
+aiofiles>=23.2.1
+
+# Utilities
+pytz>=2024.1
+loguru>=0.7.2
