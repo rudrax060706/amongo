@@ -1,6 +1,6 @@
 services:
   - type: worker
-    name: amongo-bot
+    name: amongo
     env: python
     buildCommand: |
       pip install --upgrade pip
