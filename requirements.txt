@@ -4,7 +4,8 @@ pydantic==1.10.15
 
 # Async MongoDB driver
 motor>=3.7.1
-
+certifi>=2024.8.30
+pymongo>=4.10.1
 # Environment variables
 python-dotenv>=1.0.1
 
