@@ -35,28 +35,26 @@
 
 # utils/database.py
 from motor.motor_asyncio import AsyncIOMotorClient
+import certifi
 import os
 from dotenv import load_dotenv
 import asyncio
 
 load_dotenv()
+
 MONGO_URL = os.getenv("MONGO_URL")
 
 client = AsyncIOMotorClient(
     MONGO_URL,
-    tls=True,  # Force TLS 1.2+
-    tlsAllowInvalidCertificates=False,  # Only True for debugging
-    serverSelectionTimeoutMS=5000  # 5s timeout for quick failure
+    tls=True,
+    tlsCAFile=certifi.where(),  # <— Critical for Render
+    serverSelectionTimeoutMS=5000
 )
 
 db = client.get_database("AUCTIONBOT")
 submissions_collection = db["submissions"]
 
 async def init_db(retries=5, delay=3):
-    """
-    Verify MongoDB connection at startup.
-    Retries a few times if there is a temporary network/SSL issue.
-    """
     for attempt in range(1, retries + 1):
         try:
             await db.command("ping")
