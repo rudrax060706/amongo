@@ -3,7 +3,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 from motor.motor_asyncio import AsyncIOMotorClient
 from models.tables import Submission
-from config import GROUP_ID, CHANNEL_ID, GROUP_URL, CHANNEL_URL, MONGO_URI, MONGO_DB
+from config import GROUP_ID, CHANNEL_ID, GROUP_URL, CHANNEL_URL, MONGO_URL, MONGO_DB
 from utils.tg_links import build_user_link
 
 
