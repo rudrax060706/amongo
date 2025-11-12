@@ -12,8 +12,8 @@ CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 OWNER_ID = int(os.getenv("OWNER_ID"))
 ADMINS = [int(x) for x in os.getenv("ADMINS", "").split(",")]
 
-MONGO_URL = os.getenv("DATABASE_URL") 
-MONGO_DB = os.getenv("")
+MONGO_URL = os.getenv("MONGO_URL") 
+MONGO_DB = os.getenv("MONGO_DB")
 GROUP_URL = os.getenv("GROUP_URL")
 CHANNEL_URL = os.getenv("CHANNEL_URL")
 SUPPORT_GROUP_URL = os.getenv("SUPPORT_GROUP_URL")
