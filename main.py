@@ -29,20 +29,21 @@ from tasks.auction_expiry import start_expiry_task
 
 async def main():
     print("🔄 Initializing MongoDB...")
-    # Optional: create indexes or pre-check collections
-    init_db()  # can be empty if using MongoDB directly
+    # Wait for MongoDB connection
+    await init_db()  # ✅ make sure it's awaited
     print("✅ MongoDB ready.")
 
     # Create bot application
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+    # Add all handlers as before...
     # ================== 1️⃣ BASIC COMMANDS ==================
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(help_handler)
     app.add_handler(CommandHandler("aban", aban))
     app.add_handler(CommandHandler("unaban", unaban))
     app.add_handler(status_handler)
-    app.add_handler(forceend_handler())  # Ensure handler returns a valid handler
+    app.add_handler(forceend_handler())
 
     # ================== 2️⃣ COMBINED SPECIALIZED HANDLERS ==================
     all_specialized_handlers = (
@@ -54,28 +55,24 @@ async def main():
         items_handlers +
         myitems_handlers
     )
-
     for handler in all_specialized_handlers:
         app.add_handler(handler)
 
     # ================== 3️⃣ PING COMMAND ==================
     async def ping(update, context):
         await update.message.reply_text("🏓 Pong!")
-
     app.add_handler(CommandHandler("ping", ping))
 
     # ================== 4️⃣ REMOVE HANDLERS ==================
     register_remove_handlers(app)
 
     # ================== 5️⃣ BACKGROUND TASKS ==================
-    # MongoDB-compatible tasks
-    asyncio.create_task(remove_expired_bids(app.bot))      # removes expired bid buttons
-    asyncio.create_task(start_expiry_task(app.bot, 1))     # announces expired auctions every 1 hour
+    # Start MongoDB-dependent tasks AFTER DB is ready
+    asyncio.create_task(remove_expired_bids(app.bot))
+    asyncio.create_task(start_expiry_task(app.bot, 1))
 
     print("🤖 Bot is running...")
     await app.run_polling()
-
-
 # ================== ENTRY POINT ==================
 if __name__ == "__main__":
     nest_asyncio.apply()
