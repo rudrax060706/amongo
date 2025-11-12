@@ -8,7 +8,7 @@ from utils.tg_links import build_user_link
 
 
 # ====== MONGO SETUP ======
-client = AsyncIOMotorClient(MONGO_URI)
+client = AsyncIOMotorClient(MONGO_URL)
 db = client[MONGO_DB]
 
 
