@@ -1,6 +1,9 @@
 import asyncio
 import nest_asyncio
 import threading
+import time
+import requests
+import logging
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import os
 from telegram.ext import ApplicationBuilder, CommandHandler 
@@ -25,14 +28,23 @@ from handlers.forceend import forceend_handler
 from handlers.status import status_handler
 from handlers.help import help_handler
 
-# Background Tasks (MongoDB-compatible)
+# Background Tasks
 from tasks.cleanup import remove_expired_bids
 from tasks.auction_expiry import start_expiry_task
 
 
 # ============================================================
-# ✅ HEALTH CHECK SERVER (to keep Render service alive)
+# ✅ HEALTH CHECK + KEEP ALIVE SYSTEM
 # ============================================================
+
+# Logging setup
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - [KeepAlive] - %(message)s",
+    datefmt="%H:%M:%S"
+)
+
+# --- Simple web server so Render sees your app as active ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -42,17 +54,32 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
 def start_healthcheck_server():
     port = int(os.getenv("PORT", 10000))
     server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
-    print(f"🌐 Healthcheck server running on port {port}")
+    logging.info(f"🌐 Healthcheck server running on port {port}")
     server.serve_forever()
+
+
+# --- Periodic ping to keep Render awake ---
+def keep_alive():
+    url = "https://amongo.onrender.com"  # ✅ Your Render app URL
+    while True:
+        try:
+            res = requests.get(url)
+            if res.status_code == 200:
+                logging.info("✅ Ping sent successfully")
+            else:
+                logging.warning(f"⚠️ Ping returned status {res.status_code}")
+        except Exception as e:
+            logging.error(f"❌ Ping failed: {e}")
+        time.sleep(300)  # Every 5 minutes
 
 
 # ============================================================
 # ✅ MAIN BOT INITIALIZATION
 # ============================================================
 async def main():
-    print("🔄 Initializing MongoDB...")
+    logging.info("🔄 Initializing MongoDB...")
     await init_db()
-    print("✅ MongoDB connected successfully.")
+    logging.info("✅ MongoDB connected successfully.")
 
     # Create bot application
     app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -90,7 +117,7 @@ async def main():
     asyncio.create_task(remove_expired_bids(app.bot))
     asyncio.create_task(start_expiry_task(app.bot, 1))
 
-    print("🤖 Bot is running...")
+    logging.info("🤖 Bot is running...")
     await app.run_polling()
 
 
@@ -100,13 +127,13 @@ async def main():
 if __name__ == "__main__":
     nest_asyncio.apply()
 
-    # Start fake web server in background for Render
+    # Start healthcheck and keepalive in background
     threading.Thread(target=start_healthcheck_server, daemon=True).start()
+    threading.Thread(target=keep_alive, daemon=True).start()
 
     try:
-        # ✅ Corrected: use asyncio.run() instead of run_until_complete()
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("❌ Bot stopped by user.")
+        logging.info("❌ Bot stopped by user.")
     except Exception as e:
-        print(f"⚠️ Unexpected error: {e}")
+        logging.error(f"⚠️ Unexpected error: {e}")
