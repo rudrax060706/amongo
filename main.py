@@ -3,7 +3,7 @@ import nest_asyncio
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import os
-from telegram.ext import ApplicationBuilder, CommandHandler , MessageHandler, filters
+from telegram.ext import ApplicationBuilder, CommandHandler 
 
 # Configuration and Utilities
 from config import BOT_TOKEN
@@ -24,7 +24,7 @@ from handlers.rm import register_remove_handlers
 from handlers.forceend import forceend_handler
 from handlers.status import status_handler
 from handlers.help import help_handler
-from handlers.get_file_id import get_file_id
+
 # Background Tasks (MongoDB-compatible)
 from tasks.cleanup import remove_expired_bids
 from tasks.auction_expiry import start_expiry_task
@@ -64,7 +64,7 @@ async def main():
     app.add_handler(CommandHandler("unaban", unaban))
     app.add_handler(status_handler)
     app.add_handler(forceend_handler())
-    app.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO | filters.Document.ALL, get_file_id))
+    
     # ================== 2️⃣ COMBINED SPECIALIZED HANDLERS ==================
     all_specialized_handlers = (
         add_handlers +
