@@ -32,7 +32,7 @@ async def handle_base_bid(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ✅ Update existing submission with base bid
     await db["submissions"].update_one(
-        {"_id": ObjectId(submission_id)},
+        {"_id": submission_id},
         {"$set": {
             "base_bid": base_bid,
             "status": "pending",
