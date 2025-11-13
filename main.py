@@ -104,7 +104,8 @@ if __name__ == "__main__":
     threading.Thread(target=start_healthcheck_server, daemon=True).start()
 
     try:
-        asyncio.get_event_loop().run_until_complete(main())
+        # ✅ Corrected: use asyncio.run() instead of run_until_complete()
+        asyncio.run(main())
     except KeyboardInterrupt:
         print("❌ Bot stopped by user.")
     except Exception as e:
