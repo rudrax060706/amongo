@@ -1,19 +1,10 @@
-# handlers/photo_handler.py
 import re
 from datetime import datetime
 from bson import ObjectId
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-)
-from telegram.ext import (
-    ContextTypes,
-    MessageHandler,
-    filters,
-)
-from utils.database import db  # ✅ Motor (MongoDB) client
-from models.tables import Submission  # ✅ Use your Pydantic model
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ContextTypes, MessageHandler, filters
+from utils.database import db  # MongoDB async client
+from models.tables import Submission
 from .add_command import is_private_chat, is_member, RARITY_MAP, GROUP_URL, CHANNEL_URL
 
 
@@ -92,7 +83,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             waifu_name = waifu_line
     if len(lines) > 3:
         possible_tag = lines[-1]
-        if "𝗥𝗔𝗥𝗜𝗧𝗬" not in possible_tag:
+        if "RARITY" not in possible_tag.upper():
             optional_tag = possible_tag
 
     file_id = update.message.photo[-1].file_id
@@ -111,18 +102,32 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         optional_tag=optional_tag,
         file_id=file_id,
         submitted_time=datetime.utcnow(),
+        status="draft",  # not yet finalized
     )
 
     # ✅ Insert into MongoDB
-    await db["submissions"].insert_one(submission.dict(by_alias=True))
+    result = await db["submissions"].insert_one(submission.dict(by_alias=True))
+    submission_id = str(result.inserted_id)
 
-    # Ask user for base bid
+    # ✅ Store temporarily for next step
+    context.user_data.update({
+        "submission_id": submission_id,
+        "type": selected_type,
+        "rarity": selected_rarity,
+        "rarity_name": RARITY_MAP.get(selected_rarity, "Unknown"),
+        "caption": caption,
+        "anime_name": anime_name,
+        "waifu_name": waifu_name,
+        "optional_tag": optional_tag,
+        "file_id": file_id,
+        "awaiting_bid": True,  # waiting for bid next
+    })
+
     await update.message.reply_text(
         "💰 Please enter the <b>base bid</b> for this item (in numbers only):\n\n"
         "Or type /cancel to stop this submission.",
         parse_mode="HTML",
     )
-    context.user_data["awaiting_bid"] = True  # waiting for bid next
 
 
 # ====== HANDLERS LIST ======
