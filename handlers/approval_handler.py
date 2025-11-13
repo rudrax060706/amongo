@@ -54,7 +54,7 @@ async def approval_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # === Fetch submission ===
-    submission = await db.submissions.find_one({"_id": int(submission_id)})
+    submission = await db.submissions.find_one({"_id": int(raw_item_id)})
     if not submission:
         try:
             await query.edit_message_caption(caption="⚠️ Submission not found.")
