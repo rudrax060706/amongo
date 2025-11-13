@@ -17,7 +17,7 @@ MONGO_DB = os.getenv("MONGO_DB")
 GROUP_URL = os.getenv("GROUP_URL")
 CHANNEL_URL = os.getenv("CHANNEL_URL")
 SUPPORT_GROUP_URL = os.getenv("SUPPORT_GROUP_URL")
-WELCOME_VIDEO_ID = os.getenv("WELCOME_VIDEO_ID")
+
 
 WELCOME_MESSAGE_RAW = (
     "💎 Gʀᴇᴇᴛɪɴɢs, I'ᴍ ˹Tʜᴇ Pʜᴀɴᴛᴏᴍ Tʀᴏᴜᴘᴇ Aᴜᴄᴛɪᴏɴ Bᴏᴛ˼ 🕊️ ɴɪᴄᴇ ᴛᴏ ᴍᴇᴇᴛ ʏᴏᴜ!\n"
