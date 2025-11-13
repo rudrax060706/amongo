@@ -1,11 +1,14 @@
 import asyncio
 import nest_asyncio
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import os
 from telegram.ext import ApplicationBuilder, CommandHandler
 
 # Configuration and Utilities
 from config import BOT_TOKEN
 from utils.database import db  # MongoDB client
-from utils.database import init_db  # type: ignore # optional DB init if needed
+from utils.database import init_db  # type: ignore
 
 # Handlers
 from handlers.start_handler import start_command
@@ -27,16 +30,33 @@ from tasks.cleanup import remove_expired_bids
 from tasks.auction_expiry import start_expiry_task
 
 
+# ============================================================
+# ✅ HEALTH CHECK SERVER (to keep Render service alive)
+# ============================================================
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is alive and running!")
+
+def start_healthcheck_server():
+    port = int(os.getenv("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    print(f"🌐 Healthcheck server running on port {port}")
+    server.serve_forever()
+
+
+# ============================================================
+# ✅ MAIN BOT INITIALIZATION
+# ============================================================
 async def main():
     print("🔄 Initializing MongoDB...")
-    # Wait for MongoDB connection
-    await init_db()  # ✅ make sure it's awaited
-    print("✅ MongoDB ready.")
+    await init_db()
+    print("✅ MongoDB connected successfully.")
 
     # Create bot application
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Add all handlers as before...
     # ================== 1️⃣ BASIC COMMANDS ==================
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(help_handler)
@@ -67,18 +87,25 @@ async def main():
     register_remove_handlers(app)
 
     # ================== 5️⃣ BACKGROUND TASKS ==================
-    # Start MongoDB-dependent tasks AFTER DB is ready
     asyncio.create_task(remove_expired_bids(app.bot))
     asyncio.create_task(start_expiry_task(app.bot, 1))
 
     print("🤖 Bot is running...")
     await app.run_polling()
-# ================== ENTRY POINT ==================
+
+
+# ============================================================
+# ✅ ENTRY POINT
+# ============================================================
 if __name__ == "__main__":
     nest_asyncio.apply()
+
+    # Start fake web server in background for Render
+    threading.Thread(target=start_healthcheck_server, daemon=True).start()
+
     try:
         asyncio.get_event_loop().run_until_complete(main())
     except KeyboardInterrupt:
         print("❌ Bot stopped by user.")
     except Exception as e:
-        print(f"⚠️ An unexpected error occurred: {e}")
+        print(f"⚠️ Unexpected error: {e}")
