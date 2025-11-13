@@ -1,9 +1,8 @@
-import re
+ import re
 from datetime import datetime
-from bson import ObjectId
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, MessageHandler, filters
-from utils.database import db  # MongoDB async client
+from utils.database import db, get_next_sequence  # ✅ include auto-increment helper
 from models.tables import Submission
 from .add_command import is_private_chat, is_member, RARITY_MAP, GROUP_URL, CHANNEL_URL
 
@@ -105,13 +104,19 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         status="draft",  # not yet finalized
     )
 
+    # ✅ Get next auto-increment ID
+    next_id = await get_next_sequence("submission_id")
+
+    # ✅ Prepare document with numeric _id
+    submission_dict = submission.dict(by_alias=True)
+    submission_dict["_id"] = next_id
+
     # ✅ Insert into MongoDB
-    result = await db["submissions"].insert_one(submission.dict(by_alias=True))
-    submission_id = str(result.inserted_id)
+    await db["submissions"].insert_one(submission_dict)
 
     # ✅ Store temporarily for next step
     context.user_data.update({
-        "submission_id": submission_id,
+        "submission_id": next_id,
         "type": selected_type,
         "rarity": selected_rarity,
         "rarity_name": RARITY_MAP.get(selected_rarity, "Unknown"),
