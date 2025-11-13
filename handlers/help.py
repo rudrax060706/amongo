@@ -8,17 +8,16 @@ USER_COMMANDS = [
     ("/add", "Add a new Waifu/Husbando to the auction"),
     ("/items", "View all active auction items"),
     ("/myitems", "View your submitted items"),
-    ("/bid <item_id> <amount>", "Place a bid on an item"),
+    ("/bid &lt;item_id&gt; &lt;amount&gt;", "Place a bid on an item"),
     ("/help", "Show all available commands"),
 ]
 
 ADMIN_COMMANDS = [
-    ("/aban <user_id> <reason>", "Globally ban a user"),
-    ("/unaban <user_id>", "Unban a globally banned user"),
-    ("/forceend <item_id>", "Force-end an auction manually"),
-    ("/rm <item_id(s)>", "Remove one or multiple items by ID"),
+    ("/aban &lt;user_id&gt; &lt;reason&gt;", "Globally ban a user"),
+    ("/unaban &lt;user_id&gt;", "Unban a globally banned user"),
+    ("/forceend &lt;item_id&gt;", "Force-end an auction manually"),
+    ("/rm &lt;item_id(s)&gt;", "Remove one or multiple items by ID"),
 ]
-
 
 # ================= HELPER FUNCTION =================
 def format_commands(commands):
