@@ -1,7 +1,7 @@
 # Telegram Bot
 python-telegram-bot==20.8
 pydantic==1.10.15
-
+requests==2.31.0
 # Async MongoDB driver
 motor>=3.7.1
 certifi>=2024.8.30
