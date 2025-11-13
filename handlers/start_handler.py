@@ -5,10 +5,8 @@ from telegram.ext import ContextTypes
 from utils.database import db
 from config import (
     WELCOME_MESSAGE,
-    WELCOME_VIDEO_ID,
     GROUP_URL,
     CHANNEL_URL,
-    LOG_GROUP_ID,
 )
 from utils.logger import log_user_start, escape_markdown
 
@@ -56,10 +54,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await context.bot.send_video(
-        chat_id=chat.id,
-        video=WELCOME_VIDEO_ID,
-        caption=WELCOME_MESSAGE,
+    # ====== Send Text Message Only ======
+    await update.message.reply_text(
+        text=WELCOME_MESSAGE,
         parse_mode="MarkdownV2",
         reply_markup=reply_markup,
     )
