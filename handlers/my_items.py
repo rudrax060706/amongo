@@ -32,10 +32,7 @@ async def check_user_status(user_id: int) -> str:
     """Check global ban and bot start status."""
     if await db.global_bans.find_one({"user_id": str(user_id)}):
         return "banned"
-    if not await has_started_bot(user_id):
-        return "not_started"
-    return "ok"
-
+    
 
 # ================= MAIN COMMAND HANDLER =================
 
@@ -49,14 +46,6 @@ async def items_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status = await check_user_status(user.id)
     if status == "banned":
         await update.message.reply_text("🚫 You are globally banned from using this bot.")
-        return
-    if status == "not_started":
-        keyboard = [[InlineKeyboardButton("▶️ Start Bot", url=f"https://t.me/{context.bot.username}?start=1")]]
-        await update.message.reply_text(
-            "<b>⚠️ You need to start the bot first!</b>\nClick below to start.",
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-        )
         return
 
     # 2️⃣ Membership check
