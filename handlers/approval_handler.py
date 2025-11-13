@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CallbackQueryHandler, JobQueue
-from bson import ObjectId
+
 
 from utils.database import db  # motor async client from utils/database.py
 from models.tables import Submission
@@ -45,7 +45,7 @@ async def approval_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Validate MongoDB ObjectId
     try:
-        item_id = ObjectId(raw_item_id)
+        item_id = int(raw_item_id)
     except Exception:
         try:
             await query.edit_message_caption(caption="⚠️ Invalid item ID.")
@@ -54,7 +54,7 @@ async def approval_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # === Fetch submission ===
-    submission = await db.submissions.find_one({"_id": item_id})
+    submission = await db.submissions.find_one({"_id": int(submission_id)})
     if not submission:
         try:
             await query.edit_message_caption(caption="⚠️ Submission not found.")
