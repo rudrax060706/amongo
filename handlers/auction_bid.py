@@ -115,7 +115,7 @@ async def bid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # 5️⃣ Fetch item from MongoDB
-        submission = await db.submissions.find_one({"id": item_id})
+        submission = await db.submissions.find_one({"_id": int(item_id)})
         if not submission:
             await update.message.reply_text("❌ Item not found.")
             return
@@ -165,7 +165,7 @@ async def bid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 6️⃣ Update post captions
         user_link = build_user_link(user)
         caption = (
-            f"🆔 Item ID: {submission.get('id')}\n"
+            f"🆔 Item ID: {submission.get('_id')}\n"
             f"🎬 Anime: {submission.get('anime_name')}\n"
             f"💞 {submission.get('type', '').capitalize()}: {submission.get('waifu_name')}\n"
             f"💎 Rarity: {submission.get('rarity_name')} {submission.get('rarity')}\n\n"
