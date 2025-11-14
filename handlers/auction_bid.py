@@ -46,6 +46,7 @@ async def bid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🚫 You are globally banned from using this bot.")
         return
 
+    # Must be member
     if not await is_member(user.id, context):
         keyboard = [
             [
@@ -61,7 +62,7 @@ async def bid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # 2️⃣ Must be in main group
+    # Must bid inside main group
     if chat_id != int(GROUP_ID):
         await update.message.reply_text("⚠️ You can only bid in the main auction group.")
         return
@@ -70,22 +71,20 @@ async def bid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         item_id = None
         bid_amount = None
 
-        # 3️⃣ Detect item_id (reply or direct)
+        # 2️⃣ Detect item from reply OR command
         if update.message.reply_to_message:
             replied_msg = update.message.reply_to_message
             text_source = replied_msg.caption or replied_msg.text
             if text_source and "🆔 Item ID:" in text_source:
                 try:
-                    item_id = int(
-                        text_source.split("🆔 Item ID:")[1].split("\n")[0].strip()
-                    )
-                except Exception:
+                    item_id = int(text_source.split("🆔 Item ID:")[1].split("\n")[0].strip())
+                except:
                     pass
 
             if len(context.args) >= 1:
                 try:
                     bid_amount = int(context.args[0])
-                except ValueError:
+                except:
                     await update.message.reply_text("⚠️ Invalid amount. Use: /bid <amount>")
                     return
         else:
@@ -94,85 +93,86 @@ async def bid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "Usage:\n• Reply: /bid <amount>\n• Or: /bid <item_id> <amount>"
                 )
                 return
+
             try:
                 item_id = int(context.args[0])
                 bid_amount = int(context.args[1])
-            except ValueError:
+            except:
                 await update.message.reply_text("⚠️ Invalid format. Use: /bid <item_id> <amount>")
                 return
 
         if not item_id or not bid_amount:
-            await update.message.reply_text(
-                "⚠️ Could not determine item ID. Please reply to auction post or use /bid <item_id> <amount>."
-            )
+            await update.message.reply_text("⚠️ Could not determine item ID.")
             return
 
-        # 4️⃣ Fetch item
+        # 3️⃣ Fetch item
         submission = await db.submissions.find_one({"_id": int(item_id)})
         if not submission:
             await update.message.reply_text("❌ Item not found.")
             return
 
-        # Stop bidding on ended/expired items
         if submission.get("is_expired") or submission.get("status") in ["ended", "sold", "cancelled"]:
             await update.message.reply_text("🚫 This auction has already ended.")
             return
 
         # Prevent self-bidding
         if str(submission.get("user_id")) == str(user.id):
-            await update.message.reply_text("🚫 You can’t bid on your own waifu/husbando.")
+            await update.message.reply_text("🚫 You cannot bid on your own item.")
             return
 
-        # 💰 Bid validity
-        current_bid = submission.get("current_bid") or submission.get("base_bid") or 0
-        min_next = current_bid + 5
-        if bid_amount < min_next:
-            await update.message.reply_text(f"⚠️ Minimum next bid is {min_next}.")
+        # 4️⃣ Proper current bid handling
+        db_current = submission.get("current_bid")
+        if db_current is None:
+            db_current = submission.get("base_bid") or 0
+
+        min_next_bid = db_current + 5
+
+        # Check minimum bid
+        if bid_amount < min_next_bid:
+            await update.message.reply_text(f"⚠️ Minimum next bid is {min_next_bid}.")
             return
 
-        # 🧠 Prepare bidder entry
-        previous_bidders = submission.get("previous_bidders", [])
-        new_bidder = {
-            "id": user.id,
-            "username": f"@{user.username}" if user.username else user.first_name,
-            "bid": bid_amount,
-            "time": datetime.utcnow().isoformat(),
-        }
-        previous_bidders.append(new_bidder)
-        if len(previous_bidders) > 2:
-            previous_bidders = previous_bidders[-2:]
-
-        # 🚦 Anti-Race Lock: Update only if current_bid is unchanged
+        # 5️⃣ Anti-race condition: update only if current bid hasn't changed
         result = await db.submissions.find_one_and_update(
-            {"_id": int(item_id), "current_bid": current_bid},
+            {"_id": item_id, "current_bid": submission.get("current_bid")},
             {
                 "$set": {
-                    "previous_bidders": previous_bidders,
                     "current_bid": bid_amount,
                     "last_bidder_id": user.id,
-                    "last_bidder_username": new_bidder["username"],
+                    "last_bidder_username": f"@{user.username}" if user.username else user.first_name,
                     "last_bid_time": datetime.utcnow(),
+                },
+                "$push": {
+                    "previous_bidders": {
+                        "id": user.id,
+                        "username": f"@{user.username}" if user.username else user.first_name,
+                        "bid": bid_amount,
+                        "time": datetime.utcnow().isoformat(),
+                    }
                 }
-            },
-            return_document=False,
+            }
         )
 
+        # ❌ Update failed → someone else bid first
         if not result:
-            # Another user bid before this one
-            latest = await db.submissions.find_one({"_id": int(item_id)})
+            latest = await db.submissions.find_one({"_id": item_id})
+            latest_bid = latest.get("current_bid") or latest.get("base_bid")
+            min_next = latest_bid + 5
+
             await update.message.reply_text(
-                f"⚠️ Someone else just placed a higher bid!\n"
-                f"💰 Current highest bid: {latest.get('current_bid')}"
+                f"⚠️ Someone else already placed a higher bid!\n"
+                f"💰 Current highest bid: {latest_bid}\n"
+                f"➡️ Minimum next bid: {min_next}"
             )
             return
 
-        # 🆕 Re-fetch updated data
-        updated_submission = await db.submissions.find_one({"_id": int(item_id)})
+        # 6️⃣ Update success → refresh post
+        updated_submission = await db.submissions.find_one({"_id": item_id})
 
-        # 🖼️ Update post captions
+        # Build caption
         user_link = build_user_link(user)
         caption = (
-            f"🆔 Item ID: {updated_submission.get('_id')}\n"
+            f"🆔 Item ID: {item_id}\n"
             f"🎬 Anime: {updated_submission.get('anime_name')}\n"
             f"💞 {updated_submission.get('type', '').capitalize()}: {updated_submission.get('waifu_name')}\n"
             f"💎 Rarity: {updated_submission.get('rarity_name')} {updated_submission.get('rarity')}\n\n"
@@ -183,7 +183,7 @@ async def bid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bid_url = f"{GROUP_URL}?start=bid_{item_id}"
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("💸 Bid Now", url=bid_url)]])
 
-        # Update Channel Post
+        # Update channel
         try:
             await context.bot.edit_message_caption(
                 chat_id=int(CHANNEL_ID),
@@ -193,25 +193,25 @@ async def bid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=keyboard,
             )
         except Exception as e:
-            print(f"[Error updating channel post] {e}")
+            print("Channel update error:", e)
 
-        # Update Group Post
-        if updated_submission.get("group_message_id"):
-            try:
-                await context.bot.edit_message_caption(
-                    chat_id=int(GROUP_ID),
-                    message_id=updated_submission.get("group_message_id"),
-                    caption=caption,
-                    parse_mode="HTML",
-                )
-            except Exception as e:
-                print(f"[Error updating group post] {e}")
+        # Update group
+        try:
+            await context.bot.edit_message_caption(
+                chat_id=int(GROUP_ID),
+                message_id=updated_submission.get("group_message_id"),
+                caption=caption,
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            print("Group update error:", e)
 
-        await update.message.reply_text(f"✅ You placed a bid of {bid_amount} on item #{item_id}!")
+        await update.message.reply_text(f"✅ Your bid of {bid_amount} has been placed!")
 
     except Exception as e:
-        print(f"[BID COMMAND ERROR] {e}")
-        await update.message.reply_text("❌ Something went wrong. Please try again later.")
+        print(f"[BID ERROR] {e}")
+        await update.message.reply_text("❌ An error occurred. Try again later.")
+
 
 
 # ====== RECHECK CALLBACK ======
