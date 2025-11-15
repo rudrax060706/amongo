@@ -10,11 +10,8 @@ from config import GROUP_ID, CHANNEL_ID, GROUP_URL, CHANNEL_URL, RARITY_MAP
 # Helpers
 # ---------------------------
 
-def _owner_match_values(user_id: int):
-    return {"$in": [user_id, str(user_id)]}
-
-
 def _build_channel_link(channel_id, msg_id):
+    """Construct t.me link to a channel message."""
     try:
         cid = str(channel_id)
         if not cid:
@@ -29,6 +26,7 @@ def _build_channel_link(channel_id, msg_id):
 
 
 def _emoji_for_rarity(rarity_name: str):
+    """Return the emoji for a given rarity name."""
     for emoji, name in RARITY_MAP.items():
         if name == rarity_name:
             return emoji
@@ -36,6 +34,7 @@ def _emoji_for_rarity(rarity_name: str):
 
 
 async def _safe_edit_text(query, text, **kwargs):
+    """Try editing text, caption, or fallback to reply."""
     try:
         await query.edit_message_text(text, **kwargs)
     except Exception:
@@ -48,12 +47,8 @@ async def _safe_edit_text(query, text, **kwargs):
                 pass
 
 
-# ---------------------------
-# Membership checker
-# ---------------------------
-
 async def check_membership(user_id, context):
-    """Checks if user is in BOTH group & channel."""
+    """Check if user is in both group & channel."""
     try:
         await context.bot.get_chat_member(GROUP_ID, user_id)
         await context.bot.get_chat_member(CHANNEL_ID, user_id)
@@ -71,13 +66,14 @@ async def items_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user = update.effective_user
+    user_id_str = str(user.id)
 
     # global ban check
     if await is_globally_banned(user.id):
         await update.message.reply_text("🚫 You are globally banned from using this bot.")
         return
 
-    # membership check (REPLACED is_member)
+    # membership check
     if not await check_membership(user.id, context):
         keyboard = [
             [
@@ -94,14 +90,14 @@ async def items_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    await show_category_selection(update, context)
+    await show_category_selection(update, context, user_id_str)
 
 
-# recheck (Try Again) button
 async def recheck_items(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user = update.effective_user
+    user_id_str = str(user.id)
 
     if not await check_membership(user.id, context):
         keyboard = [
@@ -119,29 +115,30 @@ async def recheck_items(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    await show_category_selection(update, context, from_callback=True)
+    await show_category_selection(update, context, user_id_str, from_callback=True)
 
 
-# show category selection (waifu / husbando)
-async def show_category_selection(update: Update, context, from_callback=False):
-    user = update.effective_user
-    user_id = user.id
+# ---------------------------
+# Category selection
+# ---------------------------
+
+async def show_category_selection(update, context, user_id_str, from_callback=False):
     now = datetime.utcnow()
 
     base_filter = {
-        "user_id": _owner_match_values(user_id),
+        "user_id": user_id_str,
         "status": "approved",
         "is_expired": False,
-        "expires_at": {"$gt": now}
+        "expires_at": {"$gt": now},
     }
 
     waifu_count = await db.submissions.count_documents({**base_filter, "type": "waifu"})
     husbando_count = await db.submissions.count_documents({**base_filter, "type": "husbando"})
 
     keyboard = []
-    if waifu_count > 0:
+    if waifu_count:
         keyboard.append([InlineKeyboardButton("💖 Waifu", callback_data="select_type_waifu")])
-    if husbando_count > 0:
+    if husbando_count:
         keyboard.append([InlineKeyboardButton("💪 Husbando", callback_data="select_type_husbando")])
 
     text = "Choose a category:" if keyboard else "<b>You have no ongoing items.</b>"
@@ -161,20 +158,21 @@ async def show_category_selection(update: Update, context, from_callback=False):
         )
 
 
-# type selection handler
+# ---------------------------
+# Type selection
+# ---------------------------
+
 async def type_selection_handler(update, context):
     query = update.callback_query
     await query.answer()
     _, _, category = query.data.split("_")
-
     keyboard = [
         [
             InlineKeyboardButton("🌟 View All", callback_data=f"view_all_{category}_1"),
-            InlineKeyboardButton("🎯 Filter by Rarity", callback_data=f"filter_rarity_{category}")
+            InlineKeyboardButton("🎯 Filter by Rarity", callback_data=f"filter_rarity_{category}"),
         ],
-        [InlineKeyboardButton("⬅️ Back", callback_data="back")]
+        [InlineKeyboardButton("⬅️ Back", callback_data="back")],
     ]
-
     await _safe_edit_text(
         query,
         f"<b>Selected category:</b> {category.capitalize()}",
@@ -183,11 +181,14 @@ async def type_selection_handler(update, context):
     )
 
 
-# view all items
+# ---------------------------
+# View all items
+# ---------------------------
+
 async def view_all_handler(update, context):
     query = update.callback_query
     await query.answer()
-    user = update.effective_user
+    user_id_str = str(update.effective_user.id)
 
     data = query.data.split("_")
     category = data[2]
@@ -195,35 +196,29 @@ async def view_all_handler(update, context):
     now = datetime.utcnow()
 
     base_filter = {
+        "user_id": user_id_str,
         "type": category,
-        "user_id": _owner_match_values(user.id),
         "status": "approved",
         "is_expired": False,
-        "expires_at": {"$gt": now}
+        "expires_at": {"$gt": now},
     }
 
-    cursor = db.submissions.find(base_filter, {
-        "waifu_name": 1, "anime_name": 1, "channel_message_id": 1,
-        "channel_id": 1, "rarity_name": 1, "current_bid": 1, "base_bid": 1
-    }).sort("_id", 1)
+    cursor = db.submissions.find(
+        base_filter,
+        {"waifu_name": 1, "anime_name": 1, "channel_message_id": 1, "channel_id": 1, "rarity_name": 1, "current_bid": 1, "base_bid": 1}
+    ).sort("_id", 1)
 
     results = await cursor.to_list(None)
     total = len(results)
-
     if total == 0:
         await _safe_edit_text(query, f"No ongoing {category}.", parse_mode="HTML")
         return
 
+    # pagination
     items_per_page = 10
     total_pages = (total + items_per_page - 1) // items_per_page
-
-    if page < 1:
-        page = 1
-    if page > total_pages:
-        page = total_pages
-
-    start = (page - 1) * items_per_page
-    end = page * items_per_page
+    page = max(1, min(page, total_pages))
+    start, end = (page - 1) * items_per_page, page * items_per_page
     current_items = results[start:end]
 
     items_list = ""
@@ -233,10 +228,8 @@ async def view_all_handler(update, context):
         msg_id = item.get("channel_message_id")
         channel_id = item.get("channel_id")
         link = _build_channel_link(channel_id, msg_id) or CHANNEL_URL or ""
-
         emoji = _emoji_for_rarity(item.get("rarity_name"))
         current_bid = item.get("current_bid") or item.get("base_bid") or 0
-
         items_list += f"{emoji} <a href='{link}'>{item['_id']}. {name}</a> ({anime}) — <b>Current:</b> {current_bid}\n"
 
     nav = []
@@ -250,37 +243,31 @@ async def view_all_handler(update, context):
         keyboard.append(nav)
     keyboard.append([
         InlineKeyboardButton("⬅ Back", callback_data=f"select_type_{category}"),
-        InlineKeyboardButton("🗑 Delete", callback_data="delete")
+        InlineKeyboardButton("🗑 Delete", callback_data="delete"),
     ])
 
-    text = (
-        f"<b>💫 Your {category.capitalize()} Auctions</b>\n"
-        f"Page {page}/{total_pages}\n\n{items_list}"
-    )
+    text = f"<b>💫 Your {category.capitalize()} Auctions</b>\nPage {page}/{total_pages}\n\n{items_list}"
 
-    await _safe_edit_text(
-        query,
-        text,
-        parse_mode="HTML",
-        disable_web_page_preview=True,
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    await _safe_edit_text(query, text, parse_mode="HTML", disable_web_page_preview=True, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
-# filter by rarity
+# ---------------------------
+# Filter by rarity
+# ---------------------------
+
 async def filter_rarity_handler(update, context):
     query = update.callback_query
     await query.answer()
+    user_id_str = str(update.effective_user.id)
     _, _, category = query.data.split("_")
-    user = update.effective_user
     now = datetime.utcnow()
 
     base_filter = {
+        "user_id": user_id_str,
         "type": category,
-        "user_id": _owner_match_values(user.id),
         "status": "approved",
         "is_expired": False,
-        "expires_at": {"$gt": now}
+        "expires_at": {"$gt": now},
     }
 
     cursor = db.submissions.find(base_filter, {"rarity_name": 1})
@@ -290,33 +277,28 @@ async def filter_rarity_handler(update, context):
         await _safe_edit_text(query, f"<b>No {category} available.</b>", parse_mode="HTML")
         return
 
-    keyboard = []
-    row = []
+    keyboard, row = [], []
     for emoji, name in RARITY_MAP.items():
         if name in rarities:
             row.append(InlineKeyboardButton(emoji, callback_data=f"select_rarity_{category}_{emoji}_1"))
             if len(row) == 3:
                 keyboard.append(row)
                 row = []
-
     if row:
         keyboard.append(row)
-
     keyboard.append([InlineKeyboardButton("⬅ Back", callback_data=f"select_type_{category}")])
 
-    await _safe_edit_text(
-        query,
-        f"<b>Filter {category.capitalize()} by Rarity</b>",
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    await _safe_edit_text(query, f"<b>Filter {category.capitalize()} by Rarity</b>", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
 
 
-# rarity selection
+# ---------------------------
+# Rarity selection
+# ---------------------------
+
 async def rarity_selection_handler(update, context):
     query = update.callback_query
     await query.answer()
-    user = update.effective_user
+    user_id_str = str(update.effective_user.id)
 
     data = query.data.split("_")
     category = data[2]
@@ -326,18 +308,18 @@ async def rarity_selection_handler(update, context):
     now = datetime.utcnow()
 
     base_filter = {
+        "user_id": user_id_str,
         "type": category,
-        "user_id": _owner_match_values(user.id),
         "rarity_name": rarity_name,
         "status": "approved",
         "is_expired": False,
-        "expires_at": {"$gt": now}
+        "expires_at": {"$gt": now},
     }
 
-    cursor = db.submissions.find(base_filter, {
-        "waifu_name": 1, "anime_name": 1, "channel_message_id": 1,
-        "channel_id": 1, "current_bid": 1, "base_bid": 1
-    }).sort("_id", 1)
+    cursor = db.submissions.find(
+        base_filter,
+        {"waifu_name": 1, "anime_name": 1, "channel_message_id": 1, "channel_id": 1, "current_bid": 1, "base_bid": 1}
+    ).sort("_id", 1)
 
     results = await cursor.to_list(None)
     total = len(results)
@@ -347,13 +329,8 @@ async def rarity_selection_handler(update, context):
 
     items_per_page = 10
     total_pages = (total + items_per_page - 1) // items_per_page
-    if page < 1:
-        page = 1
-    if page > total_pages:
-        page = total_pages
-
-    start = (page - 1) * items_per_page
-    end = page * items_per_page
+    page = max(1, min(page, total_pages))
+    start, end = (page - 1) * items_per_page, page * items_per_page
     current = results[start:end]
 
     items_list = ""
@@ -377,30 +354,28 @@ async def rarity_selection_handler(update, context):
         keyboard.append(nav)
     keyboard.append([
         InlineKeyboardButton("⬅ Back", callback_data=f"filter_rarity_{category}"),
-        InlineKeyboardButton("🗑 Delete", callback_data="delete")
+        InlineKeyboardButton("🗑 Delete", callback_data="delete"),
     ])
 
-    await _safe_edit_text(
-        query,
-        f"{emoji} <b>{rarity_name}</b> {category.capitalize()}s\nPage {page}/{total_pages}\n\n{items_list}",
-        parse_mode="HTML",
-        disable_web_page_preview=True,
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    text = f"{emoji} <b>{rarity_name}</b> {category.capitalize()}s\nPage {page}/{total_pages}\n\n{items_list}"
+    await _safe_edit_text(query, text, parse_mode="HTML", disable_web_page_preview=True, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
-# back handler
+# ---------------------------
+# Back handler
+# ---------------------------
+
 async def back_handler(update, context):
     query = update.callback_query
     await query.answer()
-    user = update.effective_user
+    user_id_str = str(update.effective_user.id)
     now = datetime.utcnow()
 
     base_filter = {
-        "user_id": _owner_match_values(user.id),
+        "user_id": user_id_str,
         "status": "approved",
         "is_expired": False,
-        "expires_at": {"$gt": now}
+        "expires_at": {"$gt": now},
     }
 
     keyboard = []
@@ -413,15 +388,13 @@ async def back_handler(update, context):
         await _safe_edit_text(query, "<b>No ongoing auctions.</b>", parse_mode="HTML")
         return
 
-    await _safe_edit_text(
-        query,
-        "Choose a category:",
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    await _safe_edit_text(query, "Choose a category:", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
 
 
-# delete
+# ---------------------------
+# Delete handler
+# ---------------------------
+
 async def delete_menu_handler(update, context):
     query = update.callback_query
     await query.answer()
@@ -431,7 +404,10 @@ async def delete_menu_handler(update, context):
         pass
 
 
-# handlers export
+# ---------------------------
+# Handlers export
+# ---------------------------
+
 myitems_handlers = [
     CommandHandler("myitems", items_command),
     CallbackQueryHandler(recheck_items, pattern="^recheck_items$"),
@@ -441,4 +417,4 @@ myitems_handlers = [
     CallbackQueryHandler(rarity_selection_handler, pattern="^select_rarity_"),
     CallbackQueryHandler(back_handler, pattern="^back$"),
     CallbackQueryHandler(delete_menu_handler, pattern="^delete$"),
-] 
+]
