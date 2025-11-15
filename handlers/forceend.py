@@ -30,11 +30,11 @@ async def forceend_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Invalid Item ID format.")
         return
 
-    submission = await db.submissions.find_one({"_id": item_id})
-    if not submission:
-        await update.message.reply_text("❌ No item found with that ID.")
-        return
-
+    try:
+        submission = await db.submissions.find_one({"_id": item_id})
+        if not submission:
+            await update.message.reply_text("❌ No item found with that ID.")
+            return
 
         if submission.get("status") not in ["approved"]:
             await update.message.reply_text("⚠️ This auction is not active or already ended.")
