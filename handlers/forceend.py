@@ -9,11 +9,9 @@ from utils.tg_links import build_user_link
 
 
 async def forceend_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Allows bot owner/admins to force-end an auction manually."""
     user = update.effective_user
-    chat_id = update.effective_chat.id
 
-    # ✅ Check admin permission
+    # Admin check
     if user.id not in ADMINS and user.id != OWNER_ID:
         return
 
@@ -21,28 +19,22 @@ async def forceend_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Usage: /forceend <item_id>")
         return
 
-    item_id = context.args[0]
+    item_id_raw = context.args[0]
 
-    try:
-       item_id_raw = context.args[0]
+    # --- Detect integer counter ID or ObjectId ---
+    if item_id_raw.isdigit():
+        item_id = int(item_id_raw)
+    elif ObjectId.is_valid(item_id_raw):
+        item_id = ObjectId(item_id_raw)
+    else:
+        await update.message.reply_text("❌ Invalid Item ID format.")
+        return
 
-       # --- Detect numeric ID (counter-based) ---
-       if item_id_raw.isdigit():
-       item_id = int(item_id_raw)
+    submission = await db.submissions.find_one({"_id": item_id})
+    if not submission:
+        await update.message.reply_text("❌ No item found with that ID.")
+        return
 
-       # --- Detect Mongo ObjectId ---
-       elif ObjectId.is_valid(item_id_raw):
-       item_id = ObjectId(item_id_raw)
-
-       else:
-         await update.message.reply_text("❌ Invalid Item ID format.")
-         return
-
-
-        submission = await db.submissions.find_one({"_id": item_id})
-        if not submission:
-            await update.message.reply_text("❌ No item found with that ID.")
-            return
 
         if submission.get("status") not in ["approved"]:
             await update.message.reply_text("⚠️ This auction is not active or already ended.")
