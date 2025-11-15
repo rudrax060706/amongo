@@ -11,8 +11,7 @@ from config import GROUP_ID, CHANNEL_ID, GROUP_URL, CHANNEL_URL, RARITY_MAP
 # ------------------------------------------------
 
 async def has_started_bot(user_id: int) -> bool:
-    user = await db.users.find_one({"user_id": user_id})
-    return user is not None
+    return await db.users.find_one({"user_id": {"$in": [user_id, str(user_id)]}}) is not None
 
 
 async def is_member(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -28,7 +27,7 @@ async def is_member(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
 
 
 async def check_user_status(user_id: int) -> str:
-    if await db.global_bans.find_one({"user_id": user_id}):
+    if await db.global_bans.find_one({"user_id": {"$in": [user_id, str(user_id)]}}):
         return "banned"
     return "ok"
 
@@ -43,12 +42,12 @@ async def items_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user = update.effective_user
 
-    # 1. Check global ban
+    # Check global ban
     if await is_globally_banned(user.id):
         await update.message.reply_text("🚫 You are globally banned from using this bot.")
         return
 
-    # 2. Check membership
+    # Check membership
     if not await is_member(user.id, context):
         keyboard = [
             [
@@ -65,7 +64,6 @@ async def items_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # 3. Show category menu
     await show_category_selection(update, context)
 
 
@@ -107,14 +105,14 @@ async def show_category_selection(update: Update, context, from_callback=False):
 
     waifu_count = await db.submissions.count_documents({
         "type": "waifu",
-        "user_id": user_id,
+        "user_id": {"$in": [user_id, str(user_id)]},
         "status": "approved",
         "expires_at": {"$gt": now}
     })
 
     husbando_count = await db.submissions.count_documents({
         "type": "husbando",
-        "user_id": user_id,
+        "user_id": {"$in": [user_id, str(user_id)]},
         "status": "approved",
         "expires_at": {"$gt": now}
     })
@@ -147,12 +145,6 @@ async def type_selection_handler(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     await query.answer()
 
-    user = update.effective_user
-
-    if await is_globally_banned(user.id):
-        await query.edit_message_text("🚫 You are globally banned.")
-        return
-
     _, _, category = query.data.split("_")
 
     keyboard = [
@@ -183,12 +175,11 @@ async def view_all_handler(update: Update, context):
 
     category = data[2]
     page = int(data[3])
-    items_per_page = 10
     now = datetime.utcnow()
 
     cursor = db.submissions.find({
         "type": category,
-        "user_id": user.id,               # FIXED HERE
+        "user_id": {"$in": [user.id, str(user.id)]},
         "status": "approved",
         "expires_at": {"$gt": now}
     }).sort("_id", 1)
@@ -196,31 +187,30 @@ async def view_all_handler(update: Update, context):
     results = await cursor.to_list(None)
     total = len(results)
 
+    if total == 0:
+        await query.edit_message_text(f"No ongoing {category}.")
+        return
+
+    items_per_page = 10
     start = (page - 1) * items_per_page
     end = page * items_per_page
     current_items = results[start:end]
 
-    if not current_items:
-        await query.edit_message_text(f"No ongoing {category}.")
-        return
-
-    # Build item list
     items_list = ""
     for item in current_items:
         name = item.get("waifu_name", "Unnamed")
         anime = item.get("anime_name", "Unknown")
         msg_id = item.get("channel_message_id")
-
         channel_id = str(item.get("channel_id", ""))
-        if channel_id.startswith("-100"):
-            link = f"https://t.me/c/{channel_id[4:]}/{msg_id}"
-        else:
-            link = f"{CHANNEL_URL}/{msg_id}"
+
+        link = (
+            f"https://t.me/c/{channel_id[4:]}/{msg_id}"
+            if channel_id.startswith("-100") else f"{CHANNEL_URL}/{msg_id}"
+        )
 
         emoji = next((k for k, v in RARITY_MAP.items() if v == item.get("rarity_name")), "⭐")
         items_list += f"{emoji} <a href='{link}'>{item['_id']}. {name}</a> ({anime})\n"
 
-    # Pagination
     total_pages = (total + items_per_page - 1) // items_per_page
 
     nav = []
@@ -260,7 +250,7 @@ async def filter_rarity_handler(update: Update, context):
 
     cursor = db.submissions.find({
         "type": category,
-        "user_id": user.id,                # FIXED HERE
+        "user_id": {"$in": [user.id, str(user.id)]},
         "status": "approved",
         "expires_at": {"$gt": now}
     }, {"rarity_name": 1})
@@ -307,13 +297,13 @@ async def rarity_selection_handler(update: Update, context):
     category = data[2]
     emoji = data[3]
     page = int(data[4])
-
     rarity_name = RARITY_MAP.get(emoji)
+
     now = datetime.utcnow()
 
     cursor = db.submissions.find({
         "type": category,
-        "user_id": user.id,                # FIXED HERE
+        "user_id": {"$in": [user.id, str(user.id)]},
         "rarity_name": rarity_name,
         "status": "approved",
         "expires_at": {"$gt": now}
@@ -323,25 +313,25 @@ async def rarity_selection_handler(update: Update, context):
     total = len(results)
     items_per_page = 10
 
+    if total == 0:
+        await query.edit_message_text("No items found.")
+        return
+
     start = (page - 1) * items_per_page
     end = page * items_per_page
     current = results[start:end]
-
-    if not current:
-        await query.edit_message_text("No items found.")
-        return
 
     items_list = ""
     for item in current:
         name = item.get("waifu_name", "Unnamed")
         anime = item.get("anime_name", "Unknown")
         msg_id = item.get("channel_message_id")
-
         channel_id = str(item.get("channel_id", ""))
-        if channel_id.startswith("-100"):
-            link = f"https://t.me/c/{channel_id[4:]}/{msg_id}"
-        else:
-            link = f"{CHANNEL_URL}/{msg_id}"
+
+        link = (
+            f"https://t.me/c/{channel_id[4:]}/{msg_id}"
+            if channel_id.startswith("-100") else f"{CHANNEL_URL}/{msg_id}"
+        )
 
         items_list += f"• <a href='{link}'>{item['_id']}. {name}</a> ({anime})\n"
 
@@ -383,9 +373,20 @@ async def back_handler(update: Update, context):
     now = datetime.utcnow()
 
     keyboard = []
-    if await db.submissions.count_documents({"type": "waifu", "user_id": user_id, "status": "approved", "expires_at": {"$gt": now}}):
+    if await db.submissions.count_documents({
+        "type": "waifu",
+        "user_id": {"$in": [user_id, str(user_id)]},
+        "status": "approved",
+        "expires_at": {"$gt": now}
+    }):
         keyboard.append([InlineKeyboardButton("💖 Waifu", callback_data="select_type_waifu")])
-    if await db.submissions.count_documents({"type": "husbando", "user_id": user_id, "status": "approved", "expires_at": {"$gt": now}}):
+
+    if await db.submissions.count_documents({
+        "type": "husbando",
+        "user_id": {"$in": [user_id, str(user_id)]},
+        "status": "approved",
+        "expires_at": {"$gt": now}
+    }):
         keyboard.append([InlineKeyboardButton("💪 Husbando", callback_data="select_type_husbando")])
 
     if not keyboard:
@@ -423,4 +424,3 @@ myitems_handlers = [
     CallbackQueryHandler(back_handler, pattern="^back$"),
     CallbackQueryHandler(delete_menu_handler, pattern="^delete$"),
 ]
-
