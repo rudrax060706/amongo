@@ -24,12 +24,20 @@ async def forceend_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     item_id = context.args[0]
 
     try:
-        # Try to convert ID safely
-        if ObjectId.is_valid(item_id):
-            item_id = ObjectId(item_id)
-        else:
-            await update.message.reply_text("❌ Invalid Item ID format.")
-            return
+       item_id_raw = context.args[0]
+
+       # --- Detect numeric ID (counter-based) ---
+       if item_id_raw.isdigit():
+       item_id = int(item_id_raw)
+
+       # --- Detect Mongo ObjectId ---
+       elif ObjectId.is_valid(item_id_raw):
+       item_id = ObjectId(item_id_raw)
+
+       else:
+         await update.message.reply_text("❌ Invalid Item ID format.")
+         return
+
 
         submission = await db.submissions.find_one({"_id": item_id})
         if not submission:
