@@ -10,52 +10,43 @@ from config import GROUP_ID, CHANNEL_ID, GROUP_URL, CHANNEL_URL, RARITY_MAP
 # Helpers
 # ---------------------------
 
-def _build_channel_link(channel_id, msg_id):
-    """Construct t.me link to a channel message."""
-    try:
-        cid = str(channel_id)
-        if not cid:
-            return None
-        if cid.startswith("-100"):
-            return f"https://t.me/c/{cid[4:]}/{msg_id}"
-        if CHANNEL_URL:
-            return f"{CHANNEL_URL}/{msg_id}"
-        return None
-    except Exception:
-        return None
+def _user_id_filter(user_id):
+    # Handles both string/int formats in DB
+    return {"$in": [str(user_id), user_id]}
 
+def _build_channel_link(channel_id, msg_id):
+    if not channel_id or not msg_id:
+        return CHANNEL_URL or ""
+    cid = str(channel_id)
+    if cid.startswith("-100"):
+        return f"https://t.me/c/{cid[4:]}/{msg_id}"
+    return f"{CHANNEL_URL}/{msg_id}" if CHANNEL_URL else ""
 
 def _emoji_for_rarity(rarity_name: str):
-    """Return the emoji for a given rarity name."""
     for emoji, name in RARITY_MAP.items():
         if name == rarity_name:
             return emoji
     return "⭐"
 
-
-async def _safe_edit_text(query, text, **kwargs):
-    """Try editing text, caption, or fallback to reply."""
+async def _safe_edit(query, text, **kwargs):
     try:
         await query.edit_message_text(text, **kwargs)
-    except Exception:
+    except:
         try:
             await query.edit_message_caption(caption=text, **kwargs)
-        except Exception:
+        except:
             try:
                 await query.message.reply_text(text, **kwargs)
-            except Exception:
+            except:
                 pass
 
-
 async def check_membership(user_id, context):
-    """Check if user is in both group & channel."""
     try:
         await context.bot.get_chat_member(GROUP_ID, user_id)
         await context.bot.get_chat_member(CHANNEL_ID, user_id)
         return True
     except:
         return False
-
 
 # ---------------------------
 # /myitems entry
@@ -64,350 +55,172 @@ async def check_membership(user_id, context):
 async def items_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
-
     user = update.effective_user
-    user_id_str = str(user.id)
 
-    # global ban check
     if await is_globally_banned(user.id):
         await update.message.reply_text("🚫 You are globally banned from using this bot.")
         return
 
-    # membership check
     if not await check_membership(user.id, context):
         keyboard = [
-            [
-                InlineKeyboardButton("📣 Join Group", url=GROUP_URL),
-                InlineKeyboardButton("📢 Join Channel", url=CHANNEL_URL),
-            ],
-            [InlineKeyboardButton("🔁 Try Again", callback_data="recheck_items")],
+            [InlineKeyboardButton("📣 Join Group", url=GROUP_URL),
+             InlineKeyboardButton("📢 Join Channel", url=CHANNEL_URL)],
+            [InlineKeyboardButton("🔁 Try Again", callback_data="recheck_items")]
         ]
         await update.message.reply_text(
-            "<b>⚠️ You must join our main group and channel to use this feature.</b>\n\n"
-            "Once done, tap <b>Try Again</b>.",
+            "<b>⚠️ Join both the group and channel to use this feature.</b>\nTap Try Again after joining.",
             parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(keyboard),
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
 
-    await show_category_selection(update, context, user_id_str)
+    await show_category_selection(update, context)
 
+# ---------------------------
+# Callback handlers
+# ---------------------------
 
-async def recheck_items(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def recheck_items(update, context):
     query = update.callback_query
     await query.answer()
     user = update.effective_user
-    user_id_str = str(user.id)
-
     if not await check_membership(user.id, context):
         keyboard = [
-            [
-                InlineKeyboardButton("📣 Join Group", url=GROUP_URL),
-                InlineKeyboardButton("📢 Join Channel", url=CHANNEL_URL),
-            ],
-            [InlineKeyboardButton("🔁 Try Again", callback_data="recheck_items")],
+            [InlineKeyboardButton("📣 Join Group", url=GROUP_URL),
+             InlineKeyboardButton("📢 Join Channel", url=CHANNEL_URL)],
+            [InlineKeyboardButton("🔁 Try Again", callback_data="recheck_items")]
         ]
-        await _safe_edit_text(
-            query,
-            "<b>⚠️ You still need to join both the group and channel.</b>",
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-        )
+        await _safe_edit(query, "<b>⚠️ You still need to join both group & channel.</b>",
+                         parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
         return
+    await show_category_selection(update, context, from_callback=True)
 
-    await show_category_selection(update, context, user_id_str, from_callback=True)
-
-
-# ---------------------------
-# Category selection
-# ---------------------------
-
-async def show_category_selection(update, context, user_id_str, from_callback=False):
+async def show_category_selection(update, context, from_callback=False):
+    user = update.effective_user
     now = datetime.utcnow()
-
     base_filter = {
-        "user_id": user_id_str,
+        "user_id": _user_id_filter(user.id),
         "status": "approved",
         "is_expired": False,
-        "expires_at": {"$gt": now},
+        "expires_at": {"$gt": now}
     }
 
     waifu_count = await db.submissions.count_documents({**base_filter, "type": "waifu"})
     husbando_count = await db.submissions.count_documents({**base_filter, "type": "husbando"})
 
     keyboard = []
-    if waifu_count:
-        keyboard.append([InlineKeyboardButton("💖 Waifu", callback_data="select_type_waifu")])
-    if husbando_count:
-        keyboard.append([InlineKeyboardButton("💪 Husbando", callback_data="select_type_husbando")])
+    if waifu_count: keyboard.append([InlineKeyboardButton("💖 Waifu", callback_data="select_type_waifu")])
+    if husbando_count: keyboard.append([InlineKeyboardButton("💪 Husbando", callback_data="select_type_husbando")])
 
-    text = "Choose a category:" if keyboard else "<b>You have no ongoing items.</b>"
+    text = "Choose a category:" if keyboard else "<b>No ongoing items.</b>"
 
     if from_callback and update.callback_query:
-        await _safe_edit_text(
-            update.callback_query,
-            text,
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None,
-        )
+        await _safe_edit(update.callback_query, text, parse_mode="HTML",
+                         reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None)
     else:
-        await update.message.reply_text(
-            text,
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None,
-        )
-
-
-# ---------------------------
-# Type selection
-# ---------------------------
+        await update.message.reply_text(text, parse_mode="HTML",
+                                        reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None)
 
 async def type_selection_handler(update, context):
     query = update.callback_query
     await query.answer()
-    _, _, category = query.data.split("_")
-    keyboard = [
-        [
-            InlineKeyboardButton("🌟 View All", callback_data=f"view_all_{category}_1"),
-            InlineKeyboardButton("🎯 Filter by Rarity", callback_data=f"filter_rarity_{category}"),
-        ],
-        [InlineKeyboardButton("⬅️ Back", callback_data="back")],
-    ]
-    await _safe_edit_text(
-        query,
-        f"<b>Selected category:</b> {category.capitalize()}",
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-    )
+    category = query.data.split("_")[2]
 
+    keyboard = [
+        [InlineKeyboardButton("🌟 View All", callback_data=f"view_all_{category}_1"),
+         InlineKeyboardButton("🎯 Filter by Rarity", callback_data=f"filter_rarity_{category}")],
+        [InlineKeyboardButton("⬅️ Back", callback_data="back")]
+    ]
+    await _safe_edit(query, f"<b>Selected category:</b> {category.capitalize()}",
+                     parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
 
 # ---------------------------
-# View all items
+# View / Filter Handlers (user-specific)
 # ---------------------------
 
 async def view_all_handler(update, context):
-    query = update.callback_query
-    await query.answer()
-    user_id_str = str(update.effective_user.id)
-
-    data = query.data.split("_")
-    category = data[2]
-    page = int(data[3]) if len(data) > 3 else 1
-    now = datetime.utcnow()
-
-    base_filter = {
-        "user_id": user_id_str,
-        "type": category,
-        "status": "approved",
-        "is_expired": False,
-        "expires_at": {"$gt": now},
-    }
-
-    cursor = db.submissions.find(
-        base_filter,
-        {"waifu_name": 1, "anime_name": 1, "channel_message_id": 1, "channel_id": 1, "rarity_name": 1, "current_bid": 1, "base_bid": 1}
-    ).sort("_id", 1)
-
-    results = await cursor.to_list(None)
-    total = len(results)
-    if total == 0:
-        await _safe_edit_text(query, f"No ongoing {category}.", parse_mode="HTML")
-        return
-
-    # pagination
-    items_per_page = 10
-    total_pages = (total + items_per_page - 1) // items_per_page
-    page = max(1, min(page, total_pages))
-    start, end = (page - 1) * items_per_page, page * items_per_page
-    current_items = results[start:end]
-
-    items_list = ""
-    for item in current_items:
-        name = item.get("waifu_name", "Unnamed")
-        anime = item.get("anime_name", "Unknown")
-        msg_id = item.get("channel_message_id")
-        channel_id = item.get("channel_id")
-        link = _build_channel_link(channel_id, msg_id) or CHANNEL_URL or ""
-        emoji = _emoji_for_rarity(item.get("rarity_name"))
-        current_bid = item.get("current_bid") or item.get("base_bid") or 0
-        items_list += f"{emoji} <a href='{link}'>{item['_id']}. {name}</a> ({anime}) — <b>Current:</b> {current_bid}\n"
-
-    nav = []
-    if page > 1:
-        nav.append(InlineKeyboardButton("⏮ Prev", callback_data=f"view_all_{category}_{page-1}"))
-    if page < total_pages:
-        nav.append(InlineKeyboardButton("Next ⏭", callback_data=f"view_all_{category}_{page+1}"))
-
-    keyboard = []
-    if nav:
-        keyboard.append(nav)
-    keyboard.append([
-        InlineKeyboardButton("⬅ Back", callback_data=f"select_type_{category}"),
-        InlineKeyboardButton("🗑 Delete", callback_data="delete"),
-    ])
-
-    text = f"<b>💫 Your {category.capitalize()} Auctions</b>\nPage {page}/{total_pages}\n\n{items_list}"
-
-    await _safe_edit_text(query, text, parse_mode="HTML", disable_web_page_preview=True, reply_markup=InlineKeyboardMarkup(keyboard))
-
-
-# ---------------------------
-# Filter by rarity
-# ---------------------------
+    await _list_items(update, context, mode="all")
 
 async def filter_rarity_handler(update, context):
-    query = update.callback_query
-    await query.answer()
-    user_id_str = str(update.effective_user.id)
-    _, _, category = query.data.split("_")
-    now = datetime.utcnow()
-
-    base_filter = {
-        "user_id": user_id_str,
-        "type": category,
-        "status": "approved",
-        "is_expired": False,
-        "expires_at": {"$gt": now},
-    }
-
-    cursor = db.submissions.find(base_filter, {"rarity_name": 1})
-    rarities = {item["rarity_name"] async for item in cursor if item.get("rarity_name")}
-
-    if not rarities:
-        await _safe_edit_text(query, f"<b>No {category} available.</b>", parse_mode="HTML")
-        return
-
-    keyboard, row = [], []
-    for emoji, name in RARITY_MAP.items():
-        if name in rarities:
-            row.append(InlineKeyboardButton(emoji, callback_data=f"select_rarity_{category}_{emoji}_1"))
-            if len(row) == 3:
-                keyboard.append(row)
-                row = []
-    if row:
-        keyboard.append(row)
-    keyboard.append([InlineKeyboardButton("⬅ Back", callback_data=f"select_type_{category}")])
-
-    await _safe_edit_text(query, f"<b>Filter {category.capitalize()} by Rarity</b>", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
-
-
-# ---------------------------
-# Rarity selection
-# ---------------------------
+    await _list_items(update, context, mode="filter_rarity")
 
 async def rarity_selection_handler(update, context):
-    query = update.callback_query
-    await query.answer()
-    user_id_str = str(update.effective_user.id)
-
-    data = query.data.split("_")
-    category = data[2]
-    emoji = data[3]
-    page = int(data[4]) if len(data) > 4 else 1
-    rarity_name = RARITY_MAP.get(emoji)
-    now = datetime.utcnow()
-
-    base_filter = {
-        "user_id": user_id_str,
-        "type": category,
-        "rarity_name": rarity_name,
-        "status": "approved",
-        "is_expired": False,
-        "expires_at": {"$gt": now},
-    }
-
-    cursor = db.submissions.find(
-        base_filter,
-        {"waifu_name": 1, "anime_name": 1, "channel_message_id": 1, "channel_id": 1, "current_bid": 1, "base_bid": 1}
-    ).sort("_id", 1)
-
-    results = await cursor.to_list(None)
-    total = len(results)
-    if total == 0:
-        await _safe_edit_text(query, "No items found.", parse_mode="HTML")
-        return
-
-    items_per_page = 10
-    total_pages = (total + items_per_page - 1) // items_per_page
-    page = max(1, min(page, total_pages))
-    start, end = (page - 1) * items_per_page, page * items_per_page
-    current = results[start:end]
-
-    items_list = ""
-    for item in current:
-        name = item.get("waifu_name", "Unnamed")
-        anime = item.get("anime_name", "Unknown")
-        msg_id = item.get("channel_message_id")
-        channel_id = item.get("channel_id")
-        link = _build_channel_link(channel_id, msg_id) or CHANNEL_URL or ""
-        current_bid = item.get("current_bid") or item.get("base_bid") or 0
-        items_list += f"• <a href='{link}'>{item['_id']}. {name}</a> ({anime}) — <b>Current:</b> {current_bid}\n"
-
-    nav = []
-    if page > 1:
-        nav.append(InlineKeyboardButton("⏮ Prev", callback_data=f"select_rarity_{category}_{emoji}_{page-1}"))
-    if page < total_pages:
-        nav.append(InlineKeyboardButton("Next ⏭", callback_data=f"select_rarity_{category}_{emoji}_{page+1}"))
-
-    keyboard = []
-    if nav:
-        keyboard.append(nav)
-    keyboard.append([
-        InlineKeyboardButton("⬅ Back", callback_data=f"filter_rarity_{category}"),
-        InlineKeyboardButton("🗑 Delete", callback_data="delete"),
-    ])
-
-    text = f"{emoji} <b>{rarity_name}</b> {category.capitalize()}s\nPage {page}/{total_pages}\n\n{items_list}"
-    await _safe_edit_text(query, text, parse_mode="HTML", disable_web_page_preview=True, reply_markup=InlineKeyboardMarkup(keyboard))
-
-
-# ---------------------------
-# Back handler
-# ---------------------------
+    await _list_items(update, context, mode="rarity")
 
 async def back_handler(update, context):
-    query = update.callback_query
-    await query.answer()
-    user_id_str = str(update.effective_user.id)
-    now = datetime.utcnow()
-
-    base_filter = {
-        "user_id": user_id_str,
-        "status": "approved",
-        "is_expired": False,
-        "expires_at": {"$gt": now},
-    }
-
-    keyboard = []
-    if await db.submissions.count_documents({**base_filter, "type": "waifu"}):
-        keyboard.append([InlineKeyboardButton("💖 Waifu", callback_data="select_type_waifu")])
-    if await db.submissions.count_documents({**base_filter, "type": "husbando"}):
-        keyboard.append([InlineKeyboardButton("💪 Husbando", callback_data="select_type_husbando")])
-
-    if not keyboard:
-        await _safe_edit_text(query, "<b>No ongoing auctions.</b>", parse_mode="HTML")
-        return
-
-    await _safe_edit_text(query, "Choose a category:", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
-
-
-# ---------------------------
-# Delete handler
-# ---------------------------
+    await show_category_selection(update, context, from_callback=True)
 
 async def delete_menu_handler(update, context):
     query = update.callback_query
     await query.answer()
-    try:
-        await query.delete_message()
-    except Exception:
-        pass
+    try: await query.delete_message()
+    except: pass
 
+# ---------------------------
+# Generic item listing
+# ---------------------------
+async def _list_items(update, context, mode="all"):
+    query = update.callback_query
+    await query.answer()
+    user = update.effective_user
+    data = query.data.split("_")
+    category = data[2]
+    page = int(data[-1]) if data[-1].isdigit() else 1
+    now = datetime.utcnow()
+
+    base_filter = {
+        "type": category,
+        "user_id": _user_id_filter(user.id),
+        "status": "approved",
+        "is_expired": False,
+        "expires_at": {"$gt": now}
+    }
+
+    if mode == "rarity":
+        emoji = data[3]
+        rarity_name = RARITY_MAP.get(emoji)
+        base_filter["rarity_name"] = rarity_name
+
+    cursor = db.submissions.find(base_filter, {
+        "waifu_name": 1, "anime_name": 1,
+        "channel_message_id": 1, "channel_id": 1,
+        "rarity_name": 1, "current_bid": 1, "base_bid": 1
+    }).sort("_id", 1)
+    results = await cursor.to_list(None)
+
+    if not results:
+        await _safe_edit(query, "<b>No items found.</b>", parse_mode="HTML")
+        return
+
+    # Pagination
+    items_per_page = 10
+    total_pages = (len(results) + items_per_page - 1) // items_per_page
+    page = max(1, min(page, total_pages))
+    current_items = results[(page-1)*items_per_page : page*items_per_page]
+
+    items_text = ""
+    for item in current_items:
+        name = item.get("waifu_name", "Unnamed")
+        anime = item.get("anime_name", "Unknown")
+        link = _build_channel_link(item.get("channel_id"), item.get("channel_message_id"))
+        emoji = _emoji_for_rarity(item.get("rarity_name"))
+        bid = item.get("current_bid") or item.get("base_bid") or 0
+        items_text += f"{emoji} <a href='{link}'>{item['_id']}. {name}</a> ({anime}) — <b>Current:</b> {bid}\n"
+
+    nav_buttons = []
+    if page > 1: nav_buttons.append(InlineKeyboardButton("⏮ Prev", callback_data=f"{data[0]}_{category}_{page-1}"))
+    if page < total_pages: nav_buttons.append(InlineKeyboardButton("Next ⏭", callback_data=f"{data[0]}_{category}_{page+1}"))
+
+    keyboard = [nav_buttons] if nav_buttons else []
+    keyboard.append([InlineKeyboardButton("⬅ Back", callback_data=f"select_type_{category}"),
+                     InlineKeyboardButton("🗑 Delete", callback_data="delete")])
+
+    text_header = f"<b>💫 Your {category.capitalize()} Auctions</b>\nPage {page}/{total_pages}\n\n"
+    await _safe_edit(query, text_header + items_text, parse_mode="HTML", disable_web_page_preview=True,
+                     reply_markup=InlineKeyboardMarkup(keyboard))
 
 # ---------------------------
 # Handlers export
-# ---------------------------
-
 myitems_handlers = [
     CommandHandler("myitems", items_command),
     CallbackQueryHandler(recheck_items, pattern="^recheck_items$"),
