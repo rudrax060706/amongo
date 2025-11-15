@@ -11,20 +11,16 @@ from config import GROUP_ID, CHANNEL_ID, GROUP_URL, CHANNEL_URL, RARITY_MAP
 # ---------------------------
 
 def _owner_match_values(user_id: int):
-    """Return a value that matches DB owner stored as int or str."""
     return {"$in": [user_id, str(user_id)]}
 
 
 def _build_channel_link(channel_id, msg_id):
-    """Build a t.me link for channel posts (works with -100... numeric ids)."""
     try:
         cid = str(channel_id)
         if not cid:
             return None
         if cid.startswith("-100"):
-            # internal/channel chat link pattern to group posts
             return f"https://t.me/c/{cid[4:]}/{msg_id}"
-        # if channel has username, CHANNEL_URL is used as fallback
         if CHANNEL_URL:
             return f"{CHANNEL_URL}/{msg_id}"
         return None
@@ -33,7 +29,6 @@ def _build_channel_link(channel_id, msg_id):
 
 
 def _emoji_for_rarity(rarity_name: str):
-    """Return emoji for given rarity_name using RARITY_MAP values."""
     for emoji, name in RARITY_MAP.items():
         if name == rarity_name:
             return emoji
@@ -44,7 +39,6 @@ async def _safe_edit_text(query, text, **kwargs):
     try:
         await query.edit_message_text(text, **kwargs)
     except Exception:
-        # fallback to edit_message_caption or reply if edit fails silently
         try:
             await query.edit_message_caption(caption=text, **kwargs)
         except Exception:
@@ -52,6 +46,20 @@ async def _safe_edit_text(query, text, **kwargs):
                 await query.message.reply_text(text, **kwargs)
             except Exception:
                 pass
+
+
+# ---------------------------
+# Membership checker
+# ---------------------------
+
+async def check_membership(user_id, context):
+    """Checks if user is in BOTH group & channel."""
+    try:
+        await context.bot.get_chat_member(GROUP_ID, user_id)
+        await context.bot.get_chat_member(CHANNEL_ID, user_id)
+        return True
+    except:
+        return False
 
 
 # ---------------------------
@@ -69,8 +77,8 @@ async def items_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🚫 You are globally banned from using this bot.")
         return
 
-    # membership check
-    if not await is_member(user.id, context):
+    # membership check (REPLACED is_member)
+    if not await check_membership(user.id, context):
         keyboard = [
             [
                 InlineKeyboardButton("📣 Join Group", url=GROUP_URL),
@@ -95,7 +103,7 @@ async def recheck_items(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user = update.effective_user
 
-    if not await is_member(user.id, context):
+    if not await check_membership(user.id, context):
         keyboard = [
             [
                 InlineKeyboardButton("📣 Join Group", url=GROUP_URL),
@@ -114,18 +122,17 @@ async def recheck_items(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_category_selection(update, context, from_callback=True)
 
 
-# show category selection (waifu / husbando) only if user owns active auctions
+# show category selection (waifu / husbando)
 async def show_category_selection(update: Update, context, from_callback=False):
-    # `update` can be message or callback; get user accordingly
     user = update.effective_user
     user_id = user.id
     now = datetime.utcnow()
 
     base_filter = {
         "user_id": _owner_match_values(user_id),
-        "status": "approved",     # only approved items
-        "is_expired": False,      # not expired flag
-        "expires_at": {"$gt": now} # still ongoing
+        "status": "approved",
+        "is_expired": False,
+        "expires_at": {"$gt": now}
     }
 
     waifu_count = await db.submissions.count_documents({**base_filter, "type": "waifu"})
@@ -154,8 +161,8 @@ async def show_category_selection(update: Update, context, from_callback=False):
         )
 
 
-# type selection handler (shows view all / filter rarities)
-async def type_selection_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# type selection handler
+async def type_selection_handler(update, context):
     query = update.callback_query
     await query.answer()
     _, _, category = query.data.split("_")
@@ -176,11 +183,12 @@ async def type_selection_handler(update: Update, context: ContextTypes.DEFAULT_T
     )
 
 
-# view all items (paginated)
-async def view_all_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# view all items
+async def view_all_handler(update, context):
     query = update.callback_query
     await query.answer()
     user = update.effective_user
+
     data = query.data.split("_")
     category = data[2]
     page = int(data[3]) if len(data) > 3 else 1
@@ -194,7 +202,6 @@ async def view_all_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "expires_at": {"$gt": now}
     }
 
-    # fetch only the needed fields to speed up
     cursor = db.submissions.find(base_filter, {
         "waifu_name": 1, "anime_name": 1, "channel_message_id": 1,
         "channel_id": 1, "rarity_name": 1, "current_bid": 1, "base_bid": 1
@@ -209,6 +216,7 @@ async def view_all_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     items_per_page = 10
     total_pages = (total + items_per_page - 1) // items_per_page
+
     if page < 1:
         page = 1
     if page > total_pages:
@@ -225,11 +233,12 @@ async def view_all_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg_id = item.get("channel_message_id")
         channel_id = item.get("channel_id")
         link = _build_channel_link(channel_id, msg_id) or CHANNEL_URL or ""
+
         emoji = _emoji_for_rarity(item.get("rarity_name"))
         current_bid = item.get("current_bid") or item.get("base_bid") or 0
+
         items_list += f"{emoji} <a href='{link}'>{item['_id']}. {name}</a> ({anime}) — <b>Current:</b> {current_bid}\n"
 
-    # navigation buttons
     nav = []
     if page > 1:
         nav.append(InlineKeyboardButton("⏮ Prev", callback_data=f"view_all_{category}_{page-1}"))
@@ -258,8 +267,8 @@ async def view_all_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# filter by rarity (show rarity pick keyboard)
-async def filter_rarity_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# filter by rarity
+async def filter_rarity_handler(update, context):
     query = update.callback_query
     await query.answer()
     _, _, category = query.data.split("_")
@@ -289,6 +298,7 @@ async def filter_rarity_handler(update: Update, context: ContextTypes.DEFAULT_TY
             if len(row) == 3:
                 keyboard.append(row)
                 row = []
+
     if row:
         keyboard.append(row)
 
@@ -302,11 +312,12 @@ async def filter_rarity_handler(update: Update, context: ContextTypes.DEFAULT_TY
     )
 
 
-# rarity selection (list items of that rarity)
-async def rarity_selection_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# rarity selection
+async def rarity_selection_handler(update, context):
     query = update.callback_query
     await query.answer()
     user = update.effective_user
+
     data = query.data.split("_")
     category = data[2]
     emoji = data[3]
@@ -378,8 +389,8 @@ async def rarity_selection_handler(update: Update, context: ContextTypes.DEFAULT
     )
 
 
-# back handler - rebuild category selection
-async def back_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# back handler
+async def back_handler(update, context):
     query = update.callback_query
     await query.answer()
     user = update.effective_user
@@ -410,8 +421,8 @@ async def back_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# delete menu (just removes the message)
-async def delete_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# delete
+async def delete_menu_handler(update, context):
     query = update.callback_query
     await query.answer()
     try:
@@ -430,5 +441,4 @@ myitems_handlers = [
     CallbackQueryHandler(rarity_selection_handler, pattern="^select_rarity_"),
     CallbackQueryHandler(back_handler, pattern="^back$"),
     CallbackQueryHandler(delete_menu_handler, pattern="^delete$"),
-]
-
+] 
